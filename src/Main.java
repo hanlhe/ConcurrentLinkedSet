@@ -24,16 +24,10 @@ public class Main {
             int o = r.nextInt(10), n = r.nextInt(10);
             int p = r.nextInt(300);
             if (p < 100) {
-//              System.out.printf("%d-%d: %b replace %d with %d. %s\n", thread_id, i,
-//                linkedSet.replace(o, n), o, n, linkedSet);
               linkedSet.replace(o, n);
             } else if (p < 200) {
-//              System.out.printf("%d-%d: %b add %d. %s\n", thread_id, i,
-//                linkedSet.add(n), n, linkedSet);
               linkedSet.add(n);
             } else {
-//              System.out.printf("%d-%d: %b remove %d. %s\n", thread_id, i,
-//                linkedSet.remove(o), o, linkedSet);
               linkedSet.remove(o);
             }
             if (!linkedSet.isSorted()) {
