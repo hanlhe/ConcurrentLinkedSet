@@ -1,5 +1,4 @@
-import java.util.Iterator;
-import java.util.TreeSet;
+import java.util.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -14,10 +13,10 @@ public class ConcurrentLinkedSet<E> {
   private class Node implements Comparable<Node> {
     private E item;
     private int key;
-    private boolean marked;
-    private Node next;
-    private Node replaced;
-    private Lock lock;
+    private volatile boolean marked;
+    private volatile Node next;
+    private volatile Node replaceNode;
+    private ReentrantLock lock;
 
     private Node() {
       this.lock = new ReentrantLock();
@@ -32,7 +31,7 @@ public class ConcurrentLinkedSet<E> {
       this.key = item.hashCode();
       this.marked = false;
       this.next = null;
-      this.replaced = replaced;
+      this.replaceNode = replaced;
       this.lock = new ReentrantLock();
     }
 
@@ -55,15 +54,21 @@ public class ConcurrentLinkedSet<E> {
       return Integer.compare(this.key, o.key);
     }
 
-//    @Override
-//    public String toString() {
-//      return "Node{" +
-//        "item=" + item +
-//        ", marked=" + marked +
-//        ", next=" + next +
-//        ", replaced=" + replaced +
-//        '}';
-//    }
+    @Override
+    public String toString() {
+      if (this == head)
+        return "[" + this.next;
+      if (this == tail)
+        return "]";
+
+      return this.item + ", " + this.next;
+    }
+
+    public boolean isSorted(Node pred) {
+      if (this == tail)
+        return true;
+      return pred.compareTo(this) < 0 && this.next.isSorted(this);
+    }
   }
 
   final private Node head;
@@ -78,14 +83,15 @@ public class ConcurrentLinkedSet<E> {
   public boolean add(E item) {
     int key = item.hashCode();
     while (true) {
-      Node pred = find(key);
-      Node curr = pred.next;
+      List<Node> windows = find(key);
+      Node pred = windows.get(0);
+      Node curr = windows.get(1);
       pred.lock();
       try {
         curr.lock();
         try {
           if (validate(pred, curr)) {
-            if (curr.key == key) {
+            if (curr != tail && curr.key == key) {
               return false;
             } else {
               Node node = new Node(item);
@@ -106,14 +112,15 @@ public class ConcurrentLinkedSet<E> {
   public boolean remove(E item) {
     int key = item.hashCode();
     while (true) {
-      Node pred = find(key);
-      Node curr = pred.next;
+      List<Node> windows = find(key);
+      Node pred = windows.get(0);
+      Node curr = windows.get(1);
       pred.lock();
       try {
         curr.lock();
         try {
           if (validate(pred, curr)) {
-            if (curr.key != key) {
+            if (curr == tail || curr.key != key) {
               return false;
             } else {
               curr.marked = true;
@@ -137,74 +144,41 @@ public class ConcurrentLinkedSet<E> {
       return add(n);
     }
     while (true) {
-      Node predNew = find(keyNew);
-      Node currNew = predNew.next;
-      Node predOld = find(keyOld);
-      Node currOld = predOld.next;
+      List<Node> windowsOld = find(keyOld);
+      Node predOld = windowsOld.get(0);
+      Node currOld = windowsOld.get(1);
 
-      if (!validate(predNew, currNew) || !validate(predOld, currOld))
-        continue;
+      List<Node> windowsNew = find(keyNew);
+      Node predNew = windowsNew.get(0);
+      Node currNew = windowsNew.get(1);
 
-      if (predOld.compareTo(predNew) < 0) {
-        // if old element's window is before new element's window
-        // predOld -> predNew
-        predOld.lock();
+      List<Node> list = new ArrayList<>();
+      list.addAll(windowsNew);
+      list.addAll(windowsOld);
+      Collections.sort(list);
+
+      list.get(0).lock();
+      try {
+        list.get(1).lock();
         try {
-          currOld.lock();
+          list.get(2).lock();
           try {
-            predNew.lock();
+            list.get(3).lock();
             try {
-              currNew.lock();
-              try {
-                return replace(o, n, predOld, currOld, predNew, currNew);
-              } finally {
-                currNew.unlock();
-              }
+              if (!validate(predNew, currNew) || !validate(predOld, currOld))
+                continue;
+              return replace(o, n, predOld, currOld, predNew, currNew);
             } finally {
-              predNew.unlock();
+              list.get(3).unlock();
             }
           } finally {
-            currOld.unlock();
+            list.get(2).unlock();
           }
         } finally {
-          predOld.unlock();
+          list.get(1).unlock();
         }
-      } else if (predOld.compareTo(predNew) > 0) {
-        predNew.lock();
-        try {
-          currNew.lock();
-          try {
-            predOld.lock();
-            try {
-              currOld.lock();
-              try {
-                return replace(o, n, predOld, currOld, predNew, currNew);
-              } finally {
-                currOld.unlock();
-              }
-            } finally {
-              predOld.unlock();
-            }
-          } finally {
-            currNew.unlock();
-          }
-        } finally {
-          predNew.unlock();
-        }
-      } else {
-        // two windows are the same.
-        // predNew (predOld) -> currNew (currOld)
-        predNew.lock();
-        try {
-          currNew.lock();
-          try {
-            return replace(o, n, predOld, currOld);
-          } finally {
-            currNew.unlock();
-          }
-        } finally {
-          predNew.unlock();
-        }
+      } finally {
+        list.get(0).unlock();
       }
     }
   }
@@ -214,21 +188,23 @@ public class ConcurrentLinkedSet<E> {
     Node curr = head;
     while (curr.key < key)
       curr = curr.next;
-    return curr.key == key && !curr.marked && (curr.replaced == null || curr.replaced.marked);
+    return curr.key == key && !curr.marked && (curr.replaceNode == null || curr.replaceNode.marked);
   }
 
   private boolean validate(Node pred, Node curr) {
-    return !pred.marked && !curr.marked && pred.next == curr;
+    return !pred.marked && !curr.marked && pred.next == curr &&
+      (curr.replaceNode == null || curr.replaceNode.marked) &&
+      (pred.replaceNode == null || pred.replaceNode.marked);
   }
 
-  private Node find(int key) {
+  private List<Node> find(int key) {
     Node pred = head;
     Node curr = head.next;
     while (curr != tail && curr.key < key) {
       pred = curr;
       curr = curr.next;
     }
-    return pred;
+    return Arrays.asList(pred, curr);
   }
 
   private boolean replace(E oldElement, E newElement,
@@ -252,83 +228,36 @@ public class ConcurrentLinkedSet<E> {
         // if new element does not exist, add new element, mark
         // old element as deleted, and remove old element.
         Node node = new Node(newElement, currOld);
-        node.next = currNew;
-        predNew.next = node;
-        currOld.marked = true; // serialization point.
-        predOld.next = currOld.next;
-        node.replaced = null;
-        return true;
+        node.lock();
+        try {
+          node.next = currNew;
+          predNew.next = node;
+          node.replaceNode.marked = true; // serialization point.
+          if (predOld.next == currOld)
+            predOld.next = currOld.next;
+          else
+            node.next = currOld.next;
+          node.replaceNode = null;
+          return true;
+        } finally {
+          node.unlock();
+        }
       } else {
         // if new element already exists, no need to add,
         // mark old element as deleted and remove old element.
         currOld.marked = true; // serialization point.
         predOld.next = currOld.next;
-        return true;
-      }
-    }
-  }
-
-  private boolean replace(E oldElement, E newElement, Node pred, Node curr) {
-    if (curr == tail || curr.key != oldElement.hashCode()) {
-      // old element does not exist
-      if (curr == tail || curr.key != newElement.hashCode()) {
-        // if new element does not exist, add new element.
-        Node node = new Node(newElement);
-        node.next = curr;
-        pred.next = node;
-        return true;
-      } else {
-        // if new element already exists, no change needed.
-        return false;
-      }
-    } else {
-      // old element does exist
-      if (curr.key != newElement.hashCode()) {
-        // if new element does not exist, add new element, mark
-        // old element as deleted, and remove old element.
-        Node node = new Node(newElement, curr);
-        node.next = curr;
-        pred.next = node;
-        curr.marked = true; // serialization point.
-        node.next = curr.next;
-        node.replaced = null;
-        return true;
-      } else {
-        // if new element already exists, no need to add,
-        // mark old element as deleted and remove old element.
-        curr.marked = true; // serialization point.
-        pred.next = curr.next;
         return true;
       }
     }
   }
 
   public boolean isSorted() {
-    if (head.next == tail)
-      return true;
-    Node itr = head.next;
-    while (itr.next != tail) {
-      if (itr.compareTo(itr.next) >= 0)
-        return false;
-      itr = itr.next;
-    }
-    return true;
+    return head.next.isSorted(head);
   }
 
   @Override
   public String toString() {
-    if (head.next == tail)
-      return "[]";
-    StringBuilder sb = new StringBuilder("[");
-    Node itr = head.next;
-    while (itr != tail) {
-      sb.append(itr.item);
-      itr = itr.next;
-      if (itr != tail)
-        sb.append(", ");
-    }
-    sb.append("]");
-    return sb.toString();
-//    return head.toString();
+    return head.toString();
   }
 }
