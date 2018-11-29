@@ -31,7 +31,7 @@ public class ConcurrentLinkedSet<E> {
     private int key;
 
     /**
-     * Flag used to logically remove/replace a node.
+     * Flag used to logically delete/replace a node.
      */
     private volatile boolean marked;
 
@@ -185,7 +185,7 @@ public class ConcurrentLinkedSet<E> {
    * @param item Element to be removed.
    * @return True if the linked list set is modified.
    */
-  public boolean remove(E item) {
+  public boolean delete(E item) {
     int key = item.hashCode();
     while (true) {
       // first locate the window.
@@ -301,9 +301,10 @@ public class ConcurrentLinkedSet<E> {
    * @return True if the window is valid and false otherwise.
    */
   private boolean validate(Node pred, Node curr) {
-    return !pred.marked && !curr.marked && pred.next == curr &&
-      (curr.replaceNode == null || curr.replaceNode.marked) &&
-      (pred.replaceNode == null || pred.replaceNode.marked);
+    return !pred.marked && !curr.marked && pred.next == curr;
+//    &&
+//      (curr.replaceNode == null || curr.replaceNode.marked) &&
+//      (pred.replaceNode == null || pred.replaceNode.marked);
   }
 
   /**
@@ -352,11 +353,11 @@ public class ConcurrentLinkedSet<E> {
       // old element does exist
       if (currNew == tail || currNew.key != newElement.hashCode()) {
         // if new element does not exist, add new element, mark
-        // old element as deleted, and remove old element.
+        // old element as deleted, and delete old element.
         Node node = new Node(newElement, currOld);
         // lock the new element to avoid potential inconsistency.
-        node.lock();
-        try {
+//        node.lock();
+//        try {
           node.next = currNew;
           predNew.next = node;
           node.replaceNode.marked = true; // serialization point.
@@ -368,12 +369,12 @@ public class ConcurrentLinkedSet<E> {
           // reset the replaceNode pointer.
           node.replaceNode = null;
           return true;
-        } finally {
-          node.unlock();
-        }
+//        } finally {
+//          node.unlock();
+//        }
       } else {
         // if new element already exists, no need to add,
-        // mark old element as deleted and remove old element.
+        // mark old element as deleted and delete old element.
         currOld.marked = true; // serialization point.
         predOld.next = currOld.next;
         return true;

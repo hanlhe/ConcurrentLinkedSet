@@ -1,0 +1,84 @@
+\documentclass{article}
+
+\usepackage{cmbright}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\newcommand*{\bigO}[1]{\ensuremath{\mathcal{O}\left(#1\right)}}
+
+\title{Algorithm for \texttt{ConcurrentLinkedSet}}
+\author{
+    Hanlin He\footnote{\texttt{hxh160630@utdallas.edu}},
+    Lizhong Zhang\footnote{\texttt{lxz160730@utdallas.edu}}
+}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+The goal of \texttt{ConcurrentLinkedSet} is to implement a concurrent linked
+list that supports four operations, namely \texttt{contains}, \texttt{insert},
+\texttt{delete} and \texttt{replace}, using lazy synchronization approach.
+
+Based on code of \texttt{add} and \texttt{remove} methods shown in the
+textbook, we designed the \texttt{replace} method as shown in \cref{replace}.
+The key idea is:
+\begin{itemize}
+    \item Add an addition field \texttt{replaceNode} in \texttt{Node} class an
+        element.
+    \item When creating the new node used in replace, refer the
+        \texttt{replaceNode} to the node to be replaced.
+    \item Logically, the replaced node was removed if it was marked. Likewise,
+        the newly added node during \texttt{replace} was logically in the list
+        only if the \texttt{replaceNode} node was marked.
+\end{itemize}
+
+\begin{algorithm}[H]
+    \caption{Algorithm for \texttt{replace}}\label{replace}
+    \begin{algorithmic}
+        \Function{replace}{$old$, $new$}
+            \State{\emph{// if two elements are the same, semantically identical with add(x).}}
+            \If{$old \equiv new$}
+                \State{\Call{add}{new}}
+            \EndIf{}
+            \While{true}
+                \State{$oldWindow \leftarrow \Call{locateWindow}{old}$}
+                \State{$newWindow \leftarrow \Call{locateWindow}{new}$}
+                \State{Lock all nodes in $oldWindow$ and $newWindow$ from left to right.}
+                \State{Validate both windows.}
+                \If{$old \notin oldWindow$}
+                    \If{$new \notin newWindow$}
+                        \State{Add $new$ node directly (like \Call{add}{new}).}
+                    \Else{}
+                        \State{\Return{false}}
+                    \EndIf
+                \Else{}
+                    \If{$new \in newWindow$}
+                        \State{Delete $old$ node directly (like \Call{delete}{new}).}
+                    \Else{}
+                        \State{Create $new$ node with \texttt{replaceNode} point to $old$ node.}
+                        \State{Add $new$ in $newWindow$.}
+                        \State{Set $marked$ flag to true in $old$ node.}\Comment{Linearization point.}
+                        \State{Bypass $old$ node.}
+                        \State{Unset \texttt{replaceNode} field in $new$}
+                    \EndIf{}
+                \EndIf{}
+                \State{Unlock all nodes in $oldWindow$ and $newWindow$ from right to left.}
+                \State{\Return{true}}
+            \EndWhile{}
+        \EndFunction{}
+    \end{algorithmic}
+\end{algorithm}
+
+To test the implementation, we run 4 to 8 thread each randomly modify
+(add/remove/replace) elements in the linked set. For each modification, we
+check if the linked list was still sorted, and abort if not. After each thread
+finished, we will do one final check if the linked list is sorted, and then
+output the duration for all iteration.
+
+\end{document}

@@ -7,6 +7,16 @@ public class Main {
   private static volatile boolean failed = false;
 
   public static void main(String[] args) {
+
+    int itr = 100000;
+    if (args.length > 0)
+      itr = Integer.parseInt(args[0]);
+    int threads = 8;
+    if (args.length > 1)
+      threads = Integer.parseInt(args[1]);
+
+    final int iteration = itr;
+
     final ConcurrentLinkedSet<Integer> linkedSet = new ConcurrentLinkedSet<>();
 
     final AtomicInteger id = new AtomicInteger(0);
@@ -20,7 +30,7 @@ public class Main {
         int i = 0;
         try {
           Random r = new Random(Instant.now().getNano());
-          for (i = 0; i < 100000000 && !failed; i++) {
+          for (i = 0; i < iteration && !failed; i++) {
             int o = r.nextInt(10), n = r.nextInt(10);
             int p = r.nextInt(300);
             if (p < 100) {
@@ -28,13 +38,12 @@ public class Main {
             } else if (p < 200) {
               linkedSet.add(n);
             } else {
-              linkedSet.remove(o);
+              linkedSet.delete(o);
             }
             if (!linkedSet.isSorted()) {
               failed = true;
               return;
             }
-//            System.out.println(i);
           }
         } finally {
           System.out.printf("Thread %d stopped at iteration %d, result: %s\n",
@@ -46,18 +55,10 @@ public class Main {
       }
     };
 
-    Thread[] ts = new Thread[32];
-    for (int i = 0; i < 32; i++)
+    Thread[] ts = new Thread[threads];
+    for (int i = 0; i < threads; i++)
       ts[i] = new Thread(runnable);
-    for (int i = 0; i < 7; i++)
+    for (int i = 0; i < threads; i++)
       ts[i].start();
-
-//    System.out.println(linkedSet.add(3));
-//    System.out.println(linkedSet);
-//    System.out.println(linkedSet.add(0));
-//    System.out.println(linkedSet);
-//    System.out.println(linkedSet.replace(0, 4));
-//    System.out.println(linkedSet);
-
   }
 }
