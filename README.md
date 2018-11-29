@@ -1,5 +1,7 @@
 # ConcurrentLinkedSet
 
+by Hanlin He (`hxh160630`) & Lizhong Zhang (`lxz160730`).
+
 To compile, run `javac Main.java` in `src` folder.
 
 To execute, run `java Main <iteration> <thread_num>` in `src` folder.
